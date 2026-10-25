@@ -4,14 +4,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Family Vault & Document Manager</title>
-    <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- React & ReactDOM -->
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-    <!-- Babel for JSX -->
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-    <!-- Tesseract OCR for client-side scanning -->
     <script src="https://unpkg.com/tesseract.js@4.1.1/dist/tesseract.min.js"></script>
     <style>
         body { background-color: #0b0f19; color: #f3f4f6; font-family: system-ui, -apple-system, sans-serif; }
@@ -24,23 +20,17 @@
         const { useState, useEffect } = React;
 
         function App() {
-            const STORAGE_KEY = 'family_vault_custom_docs_v2';
+            const STORAGE_KEY = 'family_vault_custom_docs_v3';
             
-            // Documents state
             const [documents, setDocuments] = useState(() => {
                 const saved = localStorage.getItem(STORAGE_KEY);
-                if (saved) {
-                    try { return JSON.parse(saved); } catch(e) {}
-                }
+                if (saved) { try { return JSON.parse(saved); } catch(e) {} }
                 return [];
             });
 
-            // Family Members state
             const [members, setMembers] = useState(() => {
                 const saved = localStorage.getItem(STORAGE_KEY + '_members');
-                if (saved) {
-                    try { return JSON.parse(saved); } catch(e) {}
-                }
+                if (saved) { try { return JSON.parse(saved); } catch(e) {} }
                 return [
                     { id: 1, name: 'Muhammad Noman Khan', relation: 'Self' },
                     { id: 2, name: 'Ayesha Saba', relation: 'Spouse' },
@@ -55,7 +45,6 @@
             const [newMemberRelation, setNewMemberRelation] = useState('Self');
             const [showAddMember, setShowAddMember] = useState(false);
             
-            // Upload & OCR form state
             const [showUploadModal, setShowUploadModal] = useState(false);
             const [selectedMember, setSelectedMember] = useState('');
             const [docType, setDocType] = useState('Passport');
@@ -68,19 +57,13 @@
             const [ocrStatus, setOcrStatus] = useState('');
             const [viewDocModal, setViewDocModal] = useState(null);
 
-            useEffect(() => {
-                localStorage.setItem(STORAGE_KEY, JSON.stringify(documents));
-            }, [documents]);
-
-            useEffect(() => {
-                localStorage.setItem(STORAGE_KEY + '_members', JSON.stringify(members));
-            }, [members]);
+            useEffect(() => { localStorage.setItem(STORAGE_KEY, JSON.stringify(documents)); }, [documents]);
+            useEffect(() => { localStorage.setItem(STORAGE_KEY + '_members', JSON.stringify(members)); }, [members]);
 
             const addMember = (e) => {
                 e.preventDefault();
                 if (!newMemberName.trim()) return;
-                const m = { id: Date.now(), name: newMemberName, relation: newMemberRelation };
-                setMembers([...members, m]);
+                setMembers([...members, { id: Date.now(), name: newMemberName, relation: newMemberRelation }]);
                 setNewMemberName('');
                 setShowAddMember(false);
             };
@@ -96,52 +79,28 @@
                     const base64Data = event.target.result;
                     setFileDataUrl(base64Data);
 
-                    // If file is an image, run local AI OCR scanner
                     if (file.type.startsWith('image/')) {
                         setIsScanning(true);
-                        setOcrStatus('Scanning document text...');
+                        setOcrStatus('Scanning document...');
                         try {
-                            const result = await Tesseract.recognize(base64Data, 'eng', {
-                                logger: m => {
-                                    if (m.status === 'recognizing text') {
-                                        setOcrStatus(`Extracting details... (${Math.round(m.progress * 100)}%)`);
-                                    }
-                                }
-                            });
-                            
+                            const result = await Tesseract.recognize(base64Data, 'eng');
                             const text = result.data.text;
-                            setOcrStatus('Extraction complete!');
+                            setOcrStatus('Scan finished. Please verify details below.');
 
-                            // Extract Passport / CPR / ID Numbers
-                            const idMatch = text.match(/\b([A-Z0-9]{7,12})\b/g);
-                            if (idMatch) {
-                                const foundNum = idMatch.find(n => /[0-9]/.test(n) && /[A-Z0-9]/.test(n));
-                                if (foundNum && !docNumber) setDocNumber(foundNum);
-                            }
-
-                            // Extract Expiry Dates (YYYY-MM-DD or DD/MM/YYYY)
-                            const dateMatch = text.match(/\b(\d{4}[-/.]\d{2}[-/.]\d{2}|\d{2}[-/.]\d{2}[-/.]\d{4})\b/);
-                            if (dateMatch) {
-                                const rawDate = dateMatch[0].replace(/[/.]/g, '-');
-                                const parts = rawDate.split('-');
-                                if (parts[0].length === 4) {
-                                    setExpiryDate(rawDate);
-                                } else if (parts[2].length === 4) {
-                                    setExpiryDate(`${parts[2]}-${parts[1]}-${parts[0]}`);
-                                }
-                            }
+                            // Better Regex matcher for Passport/ID (e.g. 1 letter followed by numbers or alphanumeric tokens)
+                            const words = text.split(/\s+/);
+                            const potentialId = words.find(w => /^[A-Z][0-9]{6,8}$/.test(w) || /^[0-9]{7,10}$/.test(w));
+                            if (potentialId) setDocNumber(potentialId);
 
                         } catch (err) {
-                            console.error('OCR Error:', err);
-                            setOcrStatus('Could not auto-read text. Please verify values manually.');
+                            setOcrStatus('Scan complete. Enter details manually.');
                         } finally {
                             setIsScanning(false);
                         }
                     } else {
-                        setOcrStatus('Document attached successfully.');
+                        setOcrStatus('File attached.');
                     }
                 };
-
                 reader.readAsDataURL(file);
             };
 
@@ -155,12 +114,10 @@
                     id: Date.now(),
                     memberName: selectedMember,
                     docType: docType,
-                    category: ['Passport', 'CPR / Civil ID', 'Home ID'].includes(docType) ? 'Identity' : 'Academic',
                     docNumber: docNumber,
                     expiryDate: isPermanent ? 'Permanent' : expiryDate,
-                    status: isPermanent ? 'Permanent' : 'Valid',
                     fileDataUrl: fileDataUrl,
-                    fileName: fileName || 'Scanned_Document'
+                    fileName: fileName || 'Document'
                 };
                 setDocuments([newDoc, ...documents]);
                 setShowUploadModal(false);
@@ -177,30 +134,27 @@
             };
 
             const deleteDoc = (id) => {
-                if (confirm('Are you sure you want to delete this document record?')) {
+                if (confirm('Delete this document record?')) {
                     setDocuments(documents.filter(d => d.id !== id));
                 }
             };
 
             const clearAllData = () => {
-                if (confirm('Are you sure you want to delete all saved family members and documents?')) {
+                if (confirm('Delete all records and members?')) {
                     setDocuments([]);
                     setMembers([]);
-                    localStorage.removeItem(STORAGE_KEY);
-                    localStorage.removeItem(STORAGE_KEY + '_members');
+                    localStorage.clear();
                 }
             };
 
             return (
                 <div className="min-h-screen bg-[#0b0f19] text-slate-100 p-4 md:p-8">
                     <div className="max-w-7xl mx-auto space-y-6">
-                        
-                        {/* Header */}
                         <div className="flex flex-col md:flex-row justify-between items-start md:items-center bg-slate-900/60 p-4 rounded-xl border border-slate-800 gap-4">
                             <div className="flex items-center gap-3">
-                                <div className="p-3 bg-blue-600/20 text-blue-400 rounded-lg border border-blue-500/30 font-bold text-xl">🛡️</div>
+                                <div className="p-3 bg-blue-600/25 text-blue-400 rounded-lg border border-blue-500/30 font-bold text-xl">🛡️</div>
                                 <div>
-                                    <h1 className="text-xl font-bold flex items-center gap-2">Family Vault <span className="text-xs bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded border border-emerald-500/30">Secure Local</span></h1>
+                                    <h1 className="text-xl font-bold">Family Vault <span className="text-xs bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded border border-emerald-500/30">Secure Local</span></h1>
                                     <p className="text-xs text-slate-400">Passports, CPR, IDs & Academic Records Manager</p>
                                 </div>
                             </div>
@@ -208,7 +162,7 @@
                                 <button onClick={() => setIsMasked(!isMasked)} className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-xs rounded-lg border border-slate-700">
                                     {isMasked ? '👁️ Masking ON' : '👁️ Masking OFF'}
                                 </button>
-                                <button onClick={() => { resetForm(); setShowUploadModal(true); }} className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-sm font-semibold rounded-lg shadow-lg flex items-center gap-2">
+                                <button onClick={() => { resetForm(); setShowUploadModal(true); }} className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-sm font-semibold rounded-lg shadow-lg">
                                     + Upload Document
                                 </button>
                                 {documents.length > 0 && (
@@ -219,7 +173,6 @@
                             </div>
                         </div>
 
-                        {/* Quick Stats */}
                         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                             <div className="bg-slate-900/60 p-4 rounded-xl border border-slate-800">
                                 <p className="text-xs text-slate-400">Total Vault Files</p>
@@ -235,10 +188,7 @@
                             </div>
                         </div>
 
-                        {/* Main Content Area */}
                         <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-                            
-                            {/* Sidebar Members */}
                             <div className="bg-slate-900/60 p-4 rounded-xl border border-slate-800 space-y-4">
                                 <div className="flex justify-between items-center">
                                     <h2 className="text-sm font-semibold text-slate-300 uppercase tracking-wider">Family Members</h2>
@@ -255,36 +205,31 @@
                                             <option value="Daughter">Daughter</option>
                                         </select>
                                         <div className="flex gap-2">
-                                            <button type="submit" className="flex-1 bg-blue-600 hover:bg-blue-500 text-xs py-1 rounded">Save</button>
+                                            <button type="submit" className="flex-1 bg-blue-600 text-xs py-1 rounded">Save</button>
                                             <button type="button" onClick={() => setShowAddMember(false)} className="bg-slate-700 text-xs py-1 px-2 rounded">Cancel</button>
                                         </div>
                                     </form>
                                 )}
 
                                 <div className="space-y-2">
-                                    {members.length === 0 ? (
-                                        <p className="text-xs text-slate-500 italic">No family members added yet.</p>
-                                    ) : (
-                                        members.map(m => (
-                                            <div key={m.id} className="flex justify-between items-center bg-slate-800/50 p-2.5 rounded-lg border border-slate-800">
-                                                <div>
-                                                    <p className="text-xs font-medium">{m.name}</p>
-                                                    <span className="text-[10px] text-slate-400 bg-slate-700/50 px-1.5 py-0.5 rounded">{m.relation}</span>
-                                                </div>
+                                    {members.map(m => (
+                                        <div key={m.id} className="flex justify-between items-center bg-slate-800/50 p-2.5 rounded-lg border border-slate-800">
+                                            <div>
+                                                <p className="text-xs font-medium">{m.name}</p>
+                                                <span className="text-[10px] text-slate-400 bg-slate-700/50 px-1.5 py-0.5 rounded">{m.relation}</span>
                                             </div>
-                                        ))
-                                    )}
+                                        </div>
+                                    ))}
                                 </div>
                             </div>
 
-                            {/* Documents Table */}
                             <div className="lg:col-span-3 bg-slate-900/60 p-4 rounded-xl border border-slate-800 space-y-4">
                                 <h2 className="text-sm font-semibold text-slate-300 uppercase tracking-wider">Registered Document Records</h2>
                                 
                                 {documents.length === 0 ? (
                                     <div className="text-center py-12 border-2 border-dashed border-slate-800 rounded-xl">
                                         <p className="text-slate-400 text-sm">No documents uploaded yet.</p>
-                                        <p className="text-slate-500 text-xs mt-1">Click "+ Upload Document" above to scan and attach passports, CPR, and academic certificates.</p>
+                                        <p className="text-slate-500 text-xs mt-1">Click "+ Upload Document" above to register family documents.</p>
                                     </div>
                                 ) : (
                                     <div className="overflow-x-auto">
@@ -301,7 +246,7 @@
                                             </thead>
                                             <tbody className="divide-y divide-slate-800/60">
                                                 {documents.map(doc => {
-                                                    const maskedNum = isMasked ? doc.docNumber.replace(/^(.{2}).*(.{2})$/, '$1****$2') : doc.docNumber;
+                                                    const maskedNum = isMasked && doc.docNumber.length > 4 ? doc.docNumber.replace(/^(.{2}).*(.{2})$/, '$1****$2') : doc.docNumber;
                                                     return (
                                                         <tr key={doc.id} className="hover:bg-slate-800/30">
                                                             <td className="p-3 font-medium text-slate-200">{doc.memberName}</td>
@@ -310,15 +255,11 @@
                                                             <td className="p-3 text-slate-300">{doc.expiryDate}</td>
                                                             <td className="p-3">
                                                                 {doc.fileDataUrl ? (
-                                                                    <button onClick={() => setViewDocModal(doc)} className="text-xs text-blue-400 hover:underline flex items-center gap-1">
-                                                                        📄 View Attachment
-                                                                    </button>
-                                                                ) : (
-                                                                    <span className="text-slate-500 italic">No File</span>
-                                                                )}
+                                                                    <button onClick={() => setViewDocModal(doc)} className="text-xs text-blue-400 hover:underline">📄 View Scan</button>
+                                                                ) : 'No File'}
                                                             </td>
                                                             <td className="p-3 text-right">
-                                                                <button onClick={() => deleteDoc(doc.id)} className="text-rose-400 hover:text-rose-300 bg-rose-950/30 border border-rose-900/50 px-2 py-1 rounded">Delete</button>
+                                                                <button onClick={() => deleteDoc(doc.id)} className="text-rose-400 bg-rose-950/30 border border-rose-900/50 px-2 py-1 rounded">Delete</button>
                                                             </td>
                                                         </tr>
                                                     );
@@ -328,92 +269,72 @@
                                     </div>
                                 )}
                             </div>
-
                         </div>
-
                     </div>
 
-                    {/* Upload Modal with File Upload & OCR */}
                     {showUploadModal && (
                         <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-50">
                             <div className="bg-slate-900 border border-slate-800 p-6 rounded-xl max-w-lg w-full space-y-4 max-h-[90vh] overflow-y-auto">
-                                <h3 className="text-base font-bold text-white">Upload & Scan Document</h3>
+                                <h3 className="text-base font-bold text-white">Upload & Register Document</h3>
                                 
-                                {members.length === 0 ? (
-                                    <p className="text-xs text-rose-400">Please add at least one Family Member in the sidebar before uploading documents.</p>
-                                ) : (
-                                    <form onSubmit={handleUploadDoc} className="space-y-4">
-                                        
-                                        {/* File Input Box */}
-                                        <div className="border-2 border-dashed border-slate-700 hover:border-blue-500 p-4 rounded-lg text-center bg-slate-800/40 transition">
-                                            <input type="file" accept="image/*,application/pdf" onChange={handleFileSelect} id="file-upload" className="hidden" />
-                                            <label htmlFor="file-upload" className="cursor-pointer block space-y-2">
-                                                <div className="text-2xl">📁</div>
-                                                <p className="text-xs font-semibold text-blue-400">Click to Choose Scanned Document / Image</p>
-                                                <p className="text-[11px] text-slate-400">Supports Passport, CPR, IDs, & Diplomas (JPG, PNG, PDF)</p>
-                                            </label>
-                                            {fileName && (
-                                                <p className="text-xs text-emerald-400 mt-2 font-mono">Selected: {fileName}</p>
-                                            )}
-                                        </div>
+                                <form onSubmit={handleUploadDoc} className="space-y-4">
+                                    <div className="border-2 border-dashed border-slate-700 hover:border-blue-500 p-4 rounded-lg text-center bg-slate-800/40">
+                                        <input type="file" accept="image/*,application/pdf" onChange={handleFileSelect} id="file-upload" className="hidden" />
+                                        <label htmlFor="file-upload" className="cursor-pointer block space-y-2">
+                                            <div className="text-2xl">📁</div>
+                                            <p className="text-xs font-semibold text-blue-400">Click to Choose Scanned Document / Image</p>
+                                        </label>
+                                        {fileName && <p className="text-xs text-emerald-400 mt-2 font-mono">Selected: {fileName}</p>}
+                                    </div>
 
-                                        {/* OCR Status */}
-                                        {isScanning && (
-                                            <div className="p-3 bg-blue-950/50 border border-blue-800 rounded text-xs text-blue-300 flex items-center gap-2">
-                                                <span className="animate-spin">⏳</span> {ocrStatus}
-                                            </div>
-                                        )}
-                                        {ocrStatus && !isScanning && (
-                                            <p className="text-xs text-indigo-300 italic">{ocrStatus}</p>
-                                        )}
+                                    {isScanning && <p className="text-xs text-blue-400 animate-pulse">{ocrStatus}</p>}
+                                    {ocrStatus && !isScanning && <p className="text-xs text-indigo-300">{ocrStatus}</p>}
 
+                                    <div>
+                                        <label className="text-xs text-slate-400">Select Family Member</label>
+                                        <select value={selectedMember} onChange={e => setSelectedMember(e.target.value)} className="w-full bg-slate-800 border border-slate-700 rounded p-2 text-xs mt-1 text-white" required>
+                                            <option value="">-- Choose Member --</option>
+                                            {members.map(m => <option key={m.id} value={m.name}>{m.name} ({m.relation})</option>)}
+                                        </select>
+                                    </div>
+
+                                    <div>
+                                        <label className="text-xs text-slate-400">Document Type</label>
+                                        <select value={docType} onChange={e => setDocType(e.target.value)} className="w-full bg-slate-800 border border-slate-700 rounded p-2 text-xs mt-1 text-white">
+                                            <option value="Passport">Passport</option>
+                                            <option value="CPR / Civil ID">CPR / Civil ID</option>
+                                            <option value="Home ID">Home ID Card</option>
+                                            <option value="Academic Degree">Academic Degree / Certificate</option>
+                                            <option value="Report Card">School Report Card</option>
+                                        </select>
+                                    </div>
+
+                                    <div>
+                                        <label className="text-xs text-slate-400">Document ID Number <span className="text-amber-400">(Editable)</span></label>
+                                        <input type="text" placeholder="Enter passport number or CPR ID" value={docNumber} onChange={e => setDocNumber(e.target.value)} className="w-full bg-slate-800 border border-slate-700 rounded p-2 text-xs mt-1 font-mono text-white" required />
+                                    </div>
+
+                                    <div className="flex items-center gap-2 pt-1">
+                                        <input type="checkbox" id="perm" checked={isPermanent} onChange={e => setIsPermanent(e.target.checked)} />
+                                        <label htmlFor="perm" className="text-xs text-slate-300">Permanent Record (No Expiry)</label>
+                                    </div>
+
+                                    {!isPermanent && (
                                         <div>
-                                            <label className="text-xs text-slate-400">Select Family Member</label>
-                                            <select value={selectedMember} onChange={e => setSelectedMember(e.target.value)} className="w-full bg-slate-800 border border-slate-700 rounded p-2 text-xs mt-1" required>
-                                                <option value="">-- Choose Member --</option>
-                                                {members.map(m => <option key={m.id} value={m.name}>{m.name} ({m.relation})</option>)}
-                                            </select>
+                                            <label className="text-xs text-slate-400">Expiry Date <span className="text-amber-400">(Editable)</span></label>
+                                            <input type="date" value={expiryDate} onChange={e => setExpiryDate(e.target.value)} className="w-full bg-slate-800 border border-slate-700 rounded p-2 text-xs mt-1 text-white" required={!isPermanent} />
                                         </div>
+                                    )}
 
-                                        <div>
-                                            <label className="text-xs text-slate-400">Document Type</label>
-                                            <select value={docType} onChange={e => setDocType(e.target.value)} className="w-full bg-slate-800 border border-slate-700 rounded p-2 text-xs mt-1">
-                                                <option value="Passport">Passport</option>
-                                                <option value="CPR / Civil ID">CPR / Civil ID</option>
-                                                <option value="Home ID">Home ID Card</option>
-                                                <option value="Academic Degree">Academic Degree / Certificate</option>
-                                                <option value="Report Card">School Report Card</option>
-                                            </select>
-                                        </div>
-
-                                        <div>
-                                            <label className="text-xs text-slate-400">Document ID Number</label>
-                                            <input type="text" placeholder="Auto-extracted or enter manually" value={docNumber} onChange={e => setDocNumber(e.target.value)} className="w-full bg-slate-800 border border-slate-700 rounded p-2 text-xs mt-1 font-mono" required />
-                                        </div>
-
-                                        <div className="flex items-center gap-2 pt-1">
-                                            <input type="checkbox" id="perm" checked={isPermanent} onChange={e => setIsPermanent(e.target.checked)} />
-                                            <label htmlFor="perm" className="text-xs text-slate-300">Permanent Record (No Expiry / Academic Degree)</label>
-                                        </div>
-
-                                        {!isPermanent && (
-                                            <div>
-                                                <label className="text-xs text-slate-400">Expiry Date</label>
-                                                <input type="date" value={expiryDate} onChange={e => setExpiryDate(e.target.value)} className="w-full bg-slate-800 border border-slate-700 rounded p-2 text-xs mt-1 text-white" required={!isPermanent} />
-                                            </div>
-                                        )}
-
-                                        <div className="flex gap-2 pt-3">
-                                            <button type="submit" className="flex-1 bg-blue-600 hover:bg-blue-500 text-xs py-2 rounded font-semibold">Save Document Record</button>
-                                            <button type="button" onClick={() => setShowUploadModal(false)} className="bg-slate-800 hover:bg-slate-700 text-xs py-2 px-4 rounded">Cancel</button>
-                                        </div>
-                                    </form>
-                                )}
+                                    <div className="flex gap-2 pt-3">
+                                        <button type="submit" className="flex-1 bg-blue-600 hover:bg-blue-500 text-xs py-2 rounded font-semibold text-white">Save Document Record</button>
+                                        <button type="button" onClick={() => setShowUploadModal(false)} className="bg-slate-800 hover:bg-slate-700 text-xs py-2 px-4 rounded text-white">Cancel</button>
+                                    </div>
+                                </form>
                             </div>
                         </div>
                     )}
 
-                    {/* View Attachment Modal */}
                     {viewDocModal && (
                         <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50">
                             <div className="bg-slate-900 border border-slate-800 p-6 rounded-xl max-w-2xl w-full space-y-4">
@@ -422,20 +343,19 @@
                                     <button onClick={() => setViewDocModal(null)} className="text-xs bg-slate-800 px-2 py-1 rounded text-slate-400 hover:text-white">✕ Close</button>
                                 </div>
                                 <div className="max-h-[60vh] overflow-auto flex justify-center bg-slate-950 p-2 rounded">
-                                    {viewDocModal.fileDataUrl.startsWith('data:image/') ? (
-                                        <img src={viewDocModal.fileDataUrl} alt="Document Scan" className="max-w-full h-auto rounded" />
+                                    {viewDocModal.fileDataUrl && viewDocModal.fileDataUrl.startsWith('data:image/') ? (
+                                        <img src={viewDocModal.fileDataUrl} alt="Document" className="max-w-full h-auto rounded" />
                                     ) : (
                                         <iframe src={viewDocModal.fileDataUrl} className="w-full h-96 rounded"></iframe>
                                     )}
                                 </div>
                                 <div className="flex justify-between items-center text-xs text-slate-400 pt-2">
-                                    <span>Document ID: <strong className="text-slate-200">{viewDocModal.docNumber}</strong></span>
-                                    <a href={viewDocModal.fileDataUrl} download={viewDocModal.fileName} className="px-3 py-1 bg-blue-600 hover:bg-blue-500 text-white rounded">Download File</a>
+                                    <span>ID: <strong className="text-slate-200">{viewDocModal.docNumber}</strong></span>
+                                    <a href={viewDocModal.fileDataUrl} download={viewDocModal.fileName} className="px-3 py-1 bg-blue-600 text-white rounded">Download File</a>
                                 </div>
                             </div>
                         </div>
                     )}
-
                 </div>
             );
         }
